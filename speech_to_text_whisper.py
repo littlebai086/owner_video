@@ -15,6 +15,7 @@ def translate_text(text):
     return translator.translate(text, src='en', dest='zh-TW').text
 # 加载模型（模型大小可以选择：tiny, base, small, medium, large）
 model = whisper.load_model("base")  # 选择 'base' 模型，适合快速测试
+model = whisper.load_model("small")  # 选择 'base' 模型，适合快速测试
 
 audio_file1 = "audio_mono.wav"
 audio_file1 = "chinese_test.wav"
@@ -22,6 +23,10 @@ audio_file1 = "不為誰而作的歌.wav"
 audio_file1 = "audio.wav"
 # 加载音频文件并进行语音识别
 result = model.transcribe(audio_file1)  # 支持 MP3, WAV, FLAC 格式
+
+print("Recognized Text with Timestamps:")
+for segment in result["segments"]:
+    print(f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}")
 
 # 输出结果
 print("Recognized Text:")
