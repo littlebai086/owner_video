@@ -155,9 +155,9 @@ class VideoApp(QWidget):
         output_audio = self.extract_audio(self.video_file)
         [speech_recognition_text,all_speech_recognition_text] = self.transcribe_audio(output_audio)
         translate_text = self.translate_text(speech_recognition_text)
-        
+        self.text_edit_to_show(speech_recognition_text,translate_text,all_speech_recognition_text)
         # 模拟语音转文字处理
-        self.speech_to_text_processing()
+        # self.speech_to_text_processing()
 
     def text_edit_to_show(self,speech_recognition_text,translate_text,all_speech_recognition_text):
         self.speech_recognition_text.clear()  # 清除之前的内容
