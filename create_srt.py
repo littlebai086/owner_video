@@ -18,10 +18,10 @@ content = """您好，這是一個範例 .srt 檔案。
 with open(file_path, "w", encoding="utf-8") as file:
     file.write(content)
 
-print(f"成功生成 .str 文件: {file_path}")
+print(f"成功生成 .srt 文件: {file_path}")
 
-file_path = "example.str"  # 替换为您的 .str 文件路径
-
+file_path = "20241122_155546_原文.srt"  # 替换为您的 .str 文件路径
+file_path = "C:\\Users\\peter\\Desktop\\20241127_110348WIZ KHALIFA (FEAT. CHARLIE PUTH) -  See You Again 當我們再相見 (華納official 高畫質 HD 官方完整版MV)_480p_翻譯.srt"  # 替换为您的 .str 文件路径
 # 读取文件内容
 try:
     with open(file_path, "r", encoding="utf-8") as file:

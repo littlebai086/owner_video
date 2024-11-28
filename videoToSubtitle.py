@@ -9,7 +9,7 @@ import sys
 #     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 #     QSlider, QProgressBar, QFileDialog
 # )
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QPushButton, QWidget, QLabel, QHBoxLayout, QSlider, QTextEdit, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QVBoxLayout, QPushButton, QWidget, QLabel, QHBoxLayout, QSlider, QTextEdit, QFileDialog, QMessageBox,QProgressBar 
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal,QTimer
 from PyQt6.QtGui import QIcon
@@ -18,6 +18,8 @@ import os
 import shutil
 from googletrans import Translator
 from datetime import datetime
+import time
+from pydub.utils import mediainfo
 import whisper
 
 class VideoProcessThread(QThread):
@@ -48,7 +50,7 @@ class VideoProcessThread(QThread):
             # 翻譯文字
             print("翻譯文字")
             translated_text = self.translate_text(transcribed_text)
-            print(translated_text)
+            # print(translated_text)
             self.translated_signal.emit(translated_text)  # 發送翻譯文字訊號
             subtitles = self.translate_text_to_subtitles(subtitles,translated_text)
             self.subtitles_signal.emit(subtitles)
@@ -86,12 +88,18 @@ class VideoProcessThread(QThread):
         """將音訊轉為文字"""
         print("將音訊轉為文字")
         try:
-            result = self.model.transcribe(audio_path)  # 支持 MP3, WAV, FLAC 格式
+            # 設定進度回調函數
+            result = self.model.transcribe(audio_path, verbose=True)  # 支持 MP3, WAV, FLAC 格式
+            # 估算进度
+            total_segments = len(result["segments"])
             text = ""
             all_text = ""
-            for segment in result["segments"]:
+            for  i, segment in enumerate(result["segments"]):
                 text += f"{segment['text']}\r\n"
                 all_text += f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}\r\n"
+                progress = int((i + 1) / total_segments * 100)
+                self.progress_signal.emit(progress)  # 发送信号更新进度条
+                # time.sleep(0.1)  # 模拟处理时间
                 print(f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}")
             print("開始轉錄...")
             print(audio_path)
@@ -189,6 +197,24 @@ class VideoApp(QWidget):
         self.status_label.setStyleSheet("color: blue; font-size: 14px;")
         layout.addWidget(self.status_label)
         
+        # 進度條
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setValue(0)
+        
+        # 自定义进度条样式
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid grey;
+                border-radius: 5px;
+                background: #FFFFFF;
+            }
+            QProgressBar::chunk {
+                background-color: #00FF00;
+                width: 10px;
+                margin: 0.5px;
+            }
+        """)
+        layout.addWidget(self.progress_bar)
         # 語音辨識後的Label
         self.speech_recognition_label = QLabel("語音辨識的文字")
         self.speech_recognition_label.setStyleSheet("font-size: 14px;")
@@ -342,6 +368,7 @@ class VideoApp(QWidget):
         self.status_label.setText("狀態：正在進行語音轉文字...")
         
         self.video_thread = VideoProcessThread(self.video_file, self.audio_path)
+        self.video_thread.progress_signal.connect(self.update_progress)
         self.video_thread.transcribed_signal.connect(self.update_transcribed_text)
         self.video_thread.translated_signal.connect(self.update_translated_text)
         self.video_thread.all_transcribed_signal.connect(self.update_all_transcribed_text)
@@ -355,7 +382,11 @@ class VideoApp(QWidget):
         # QTimer.singleShot(0, lambda: self._show_error_dialog(error_message))
         print(error_message)
         QMessageBox.critical(self, "錯誤",error_message)
-
+        
+    def update_progress(self, value):
+        """更新進度條"""
+        self.progress_bar.setValue(value)
+        
     def update_processing_time(self):
             """每秒更新处理时间"""
             self.processing_seconds += 1
