@@ -9,7 +9,11 @@ import sys
 #     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 #     QSlider, QProgressBar, QFileDialog
 # )
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QPushButton, QWidget, QLabel, QHBoxLayout, QSlider, QTextEdit, QFileDialog, QMessageBox,QProgressBar 
+from PyQt6.QtWidgets import (
+    QApplication, QVBoxLayout, QPushButton,
+    QWidget, QLabel, QHBoxLayout, QSlider, 
+    QTextEdit, QFileDialog, QMessageBox,
+    QProgressBar ,QComboBox, QStackedWidget)
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal,QTimer
 from PyQt6.QtGui import QIcon
@@ -21,7 +25,23 @@ from datetime import datetime
 import time
 from pydub.utils import mediainfo
 import whisper
+import torch
 
+class CommonClass():
+    
+    def list_devices(self):
+        """列出可用的設備 (GPU 和 CPU)。"""
+        devices = []
+        
+        # 檢查 GPU 是否可用
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                devices.append(f"GPU:{i} ({torch.cuda.get_device_name(i)})")
+        
+        # 添加 CPU
+        devices.append("CPU")
+        return devices
+    
 class VideoProcessThread(QThread):
     progress_signal = pyqtSignal(int)
     error_signal = pyqtSignal(str)
@@ -131,9 +151,52 @@ class VideoProcessThread(QThread):
         for index, subtitle in enumerate(subtitles):
             subtitles[index]["chinese_text"] = chinese_translate_text_array[index]
         return subtitles
+
     
-class VideoApp(QWidget):
-    def __init__(self):
+class SettingSelectionPage(QWidget):
+    def __init__(self, switch_to_main_ui):
+        super().__init__()
+        self.Common_class = CommonClass()
+        self.list_devices = self.Common_class.list_devices()
+        self.initUI()
+        self.switch_to_main_ui = switch_to_main_ui
+        
+    def initUI(self):
+        self.setWindowTitle("設定選擇頁面")
+        self.setGeometry(100, 100, 600, 300)
+    
+        # 主布局
+        layout = QVBoxLayout()
+    
+        
+        # 創建選擇裝置 label
+        self.device_label = QLabel("請選擇裝置")
+        self.device_label.setStyleSheet("font-size: 14px;")
+        layout.addWidget(self.device_label)
+    
+       # 創建裝置下拉選單 select
+        self.decive_combo_box = QComboBox(self)
+        self.decive_combo_box.addItems(self.list_devices)
+        layout.addWidget(self.decive_combo_box)
+    
+    
+        # 创建按钮来获取选择的值并进入下一页
+        self.select_main_button = QPushButton("進入主界面", self)
+        self.select_main_button.clicked.connect(self.into_main_ui)
+        layout.addWidget(self.select_main_button)
+        # 设置主布局
+        self.setLayout(layout)
+        
+    def into_main_ui(self):
+        """获取选择的设备并进入主界面"""    
+        selected_device = self.decive_combo_box.currentText()
+        print(f"选择的设备: {selected_device}")
+        # 切换到主界面
+        self.switch_to_main_ui(selected_device)
+       
+
+class MainUIPage(QWidget):
+    def __init__(self, selected_device, switch_to_setting_selection):
         super().__init__()
         self.speech_recognition_text=""
         self.translate_text=""
@@ -142,9 +205,12 @@ class VideoApp(QWidget):
         self.processing_seconds = 0
         # 翻譯是否完成
         self.translation_complete = False
+        self.Common_class = CommonClass()
+        self.selected_device = selected_device
         self.initUI()
+        self.switch_to_setting_selection = switch_to_setting_selection
         self.model = whisper.load_model("small")
-
+        
     def initUI(self):
         self.setWindowTitle("視頻語音轉文字工具")
         self.setGeometry(100, 100, 600, 300)
@@ -156,11 +222,18 @@ class VideoApp(QWidget):
         file_layout = QHBoxLayout()
         self.file_label = QLabel("未選擇文件")
         self.file_label.setStyleSheet("color: gray; font-size: 14px;")
+        
+        # 選擇影片按鈕
         self.select_file_button = QPushButton("選擇影片")
         self.select_file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_label)
         file_layout.addWidget(self.select_file_button)
         layout.addLayout(file_layout)
+        
+        # 創建選擇裝置 label
+        self.device_label = QLabel(f"當前選擇的設備: {self.selected_device}")
+        self.device_label.setStyleSheet("font-size: 14px;")
+        layout.addWidget(self.device_label)
 
         # 进度条部分
         progress_layout = QHBoxLayout()
@@ -207,6 +280,7 @@ class VideoApp(QWidget):
                 border: 1px solid grey;
                 border-radius: 5px;
                 background: #FFFFFF;
+                text-align: center; /* 文本水平居中 */
             }
             QProgressBar::chunk {
                 background-color: #00FF00;
@@ -215,6 +289,7 @@ class VideoApp(QWidget):
             }
         """)
         layout.addWidget(self.progress_bar)
+        
         # 語音辨識後的Label
         self.speech_recognition_label = QLabel("語音辨識的文字")
         self.speech_recognition_label.setStyleSheet("font-size: 14px;")
@@ -255,6 +330,10 @@ class VideoApp(QWidget):
         self.all_speech_recognition_textEdit.setReadOnly(True)  # 设置为只读
         layout.addWidget(self.all_speech_recognition_textEdit)
         
+        # 返回按钮
+        self.back_button = QPushButton("返回設備選擇", self)
+        self.back_button.clicked.connect(self.on_back_button_clicked)
+        layout.addWidget(self.back_button)
         # 设置主布局
         self.setLayout(layout)
 
@@ -263,6 +342,10 @@ class VideoApp(QWidget):
         self.video_file_name = None
         self.playing = False
 
+    def on_back_button_clicked(self):
+        """点击返回按钮时切换回设备选择界面"""
+        self.switch_to_setting_selection()
+        
     def select_file(self):
         """选择视频文件"""
         file_dialog = QFileDialog(self)
@@ -474,7 +557,38 @@ class VideoApp(QWidget):
             self.play_button.setText("暂停")
             self.status_label.setText("狀態：播放中")
             self.playing = True
-            
+          
+class VideoApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("設定選擇頁面")
+        self.setGeometry(100, 100, 600, 300)
+        # 创建 QStackedWidget 来管理页面切换
+        self.stacked_widget = QStackedWidget(self)
+
+        # 创建页面
+        self.setting_selection_page = SettingSelectionPage(self.switch_to_main_ui)
+        self.main_ui_page = None  # 初始化主界面为空
+
+        # 将页面添加到 QStackedWidget
+        self.stacked_widget.addWidget(self.setting_selection_page)
+        
+        # 设置布局
+        layout = QHBoxLayout(self)
+        layout.addWidget(self.stacked_widget)
+        self.setLayout(layout)
+
+    def switch_to_main_ui(self, selected_device):
+        """切换到主界面"""
+        # 创建主界面并切换
+        self.main_ui_page = MainUIPage(selected_device, self.switch_to_setting_selection)
+        self.stacked_widget.addWidget(self.main_ui_page)
+        self.stacked_widget.setCurrentWidget(self.main_ui_page)  # 显示主界面
+
+    def switch_to_setting_selection(self):
+        """切换回设备选择页面"""
+        self.stacked_widget.setCurrentWidget(self.setting_selection_page) 
+          
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = VideoApp()
