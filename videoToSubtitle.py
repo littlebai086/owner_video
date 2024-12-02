@@ -17,13 +17,14 @@ from PyQt6.QtWidgets import (
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal,QTimer
 from PyQt6.QtGui import QIcon
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
+# from moviepy.editor import VideoFileClip
 import os
 import shutil
 from googletrans import Translator
 from datetime import datetime
 import time
-from pydub.utils import mediainfo
+# from pydub.utils import mediainfo
 import whisper
 import torch
 
@@ -42,6 +43,29 @@ class CommonClass():
         devices.append("CPU")
         return devices
     
+    def list_available_devices(self):
+        devices = {}
+    
+        # 检查 CPU
+        devices["CPU"] = "Available"
+    
+        # 检查 XPU
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            devices["XPU"] = torch.xpu.get_device_name()
+        else:
+            devices["XPU"] = "Not available"
+    
+        # 检查 GPU
+        if torch.cuda.is_available():
+            gpu_devices = []
+            for i in range(torch.cuda.device_count()):
+                gpu_devices.append(torch.cuda.get_device_name(i))
+            devices["GPU"] = gpu_devices
+        else:
+            devices["GPU"] = "Not available"
+        print(devices)
+        return devices
+
 class VideoProcessThread(QThread):
     progress_signal = pyqtSignal(int)
     error_signal = pyqtSignal(str)
@@ -157,7 +181,8 @@ class SettingSelectionPage(QWidget):
     def __init__(self, switch_to_main_ui):
         super().__init__()
         self.Common_class = CommonClass()
-        self.list_devices = self.Common_class.list_devices()
+        # self.list_devices = self.Common_class.list_devices()
+        self.device_dict = self.Common_class.list_available_devices()
         self.initUI()
         self.switch_to_main_ui = switch_to_main_ui
         
@@ -176,7 +201,9 @@ class SettingSelectionPage(QWidget):
     
        # 創建裝置下拉選單 select
         self.decive_combo_box = QComboBox(self)
-        self.decive_combo_box.addItems(self.list_devices)
+        self.selectDevicesItem(self.device_dict)
+        for display_name, device_value in self.device_items:
+            self.decive_combo_box.addItem(display_name, device_value)
         layout.addWidget(self.decive_combo_box)
     
     
@@ -187,16 +214,31 @@ class SettingSelectionPage(QWidget):
         # 设置主布局
         self.setLayout(layout)
         
+    def selectDevicesItem(self,device_dict):
+       self.device_items = []
+       for device_type, status in device_dict.items():
+           if isinstance(status, list):  # 处理多个 GPU 的情况
+               for i, gpu_name in enumerate(status):
+                   display_name = f"{device_type} {i}: {gpu_name}"
+                   device_value = f"cuda:{i}"  # 对应设备值
+                   self.device_items.append((display_name, device_value))
+           else:
+               display_name = f"{device_type}: {status}"
+               device_value = device_type.lower() if status != "Not available" else "none"
+               self.device_items.append((display_name, device_value))
+    
     def into_main_ui(self):
         """获取选择的设备并进入主界面"""    
-        selected_device = self.decive_combo_box.currentText()
-        print(f"选择的设备: {selected_device}")
+        selected_device_value = self.decive_combo_box.currentData()
+        selected_device_text = self.decive_combo_box.currentText()
+        print(f"选择的设备: {selected_device_value}")
+        print(f"选择的设备: {selected_device_text}")
         # 切换到主界面
-        self.switch_to_main_ui(selected_device)
+        self.switch_to_main_ui(selected_device_value,selected_device_text)
        
 
 class MainUIPage(QWidget):
-    def __init__(self, selected_device, switch_to_setting_selection):
+    def __init__(self, selected_device_value,selected_device_text, switch_to_setting_selection):
         super().__init__()
         self.speech_recognition_text=""
         self.translate_text=""
@@ -206,10 +248,11 @@ class MainUIPage(QWidget):
         # 翻譯是否完成
         self.translation_complete = False
         self.Common_class = CommonClass()
-        self.selected_device = selected_device
+        self.selected_device_value = selected_device_value
+        self.selected_device_text = selected_device_text
         self.initUI()
         self.switch_to_setting_selection = switch_to_setting_selection
-        self.model = whisper.load_model("small")
+        self.model = whisper.load_model("small", device=self.selected_device_value)
         
     def initUI(self):
         self.setWindowTitle("視頻語音轉文字工具")
@@ -231,7 +274,7 @@ class MainUIPage(QWidget):
         layout.addLayout(file_layout)
         
         # 創建選擇裝置 label
-        self.device_label = QLabel(f"當前選擇的設備: {self.selected_device}")
+        self.device_label = QLabel(f"當前選擇的設備: {self.selected_device_text}")
         self.device_label.setStyleSheet("font-size: 14px;")
         layout.addWidget(self.device_label)
 
@@ -342,6 +385,7 @@ class MainUIPage(QWidget):
         self.video_file_name = None
         self.playing = False
 
+    
     def on_back_button_clicked(self):
         """点击返回按钮时切换回设备选择界面"""
         self.switch_to_setting_selection()
@@ -471,9 +515,9 @@ class MainUIPage(QWidget):
         self.progress_bar.setValue(value)
         
     def update_processing_time(self):
-            """每秒更新处理时间"""
-            self.processing_seconds += 1
-            self.processing_time_label.setText(f"處理秒數：{self.processing_seconds} 秒")
+        """每秒更新处理时间"""
+        self.processing_seconds += 1
+        self.processing_time_label.setText(f"處理秒數：{self.processing_seconds} 秒")
 
     def update_transcribed_text(self, text):
         """更新UI中的轉錄字幕"""
@@ -504,6 +548,7 @@ class MainUIPage(QWidget):
             
     def start_processing(self):
         """开始处理"""
+        self.progress_bar.setValue(0)
         self.processing_seconds = 0  # 重置秒数
         self.status_label.setText("狀態：處理中")
         self.status_label.setStyleSheet("color: orange;")  # 状态颜色为橙色
@@ -578,10 +623,10 @@ class VideoApp(QWidget):
         layout.addWidget(self.stacked_widget)
         self.setLayout(layout)
 
-    def switch_to_main_ui(self, selected_device):
+    def switch_to_main_ui(self, selected_device_value,selected_device_text):
         """切换到主界面"""
         # 创建主界面并切换
-        self.main_ui_page = MainUIPage(selected_device, self.switch_to_setting_selection)
+        self.main_ui_page = MainUIPage(selected_device_value,selected_device_text, self.switch_to_setting_selection)
         self.stacked_widget.addWidget(self.main_ui_page)
         self.stacked_widget.setCurrentWidget(self.main_ui_page)  # 显示主界面
 
