@@ -9,20 +9,6 @@ import sys
 #     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 #     QSlider, QProgressBar, QFileDialog
 # )
-
-# from PyQt6.QtWidgets import (
-#     QApplication, QVBoxLayout, QPushButton,
-#     QWidget, QLabel, QHBoxLayout, QSlider, 
-#     QTextEdit, QFileDialog, QMessageBox,
-#     QProgressBar ,QComboBox, QStackedWidget
-#     )
-
-# from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
-# from PyQt6.QtMultimediaWidgets import QVideoWidget
-# from PyQt6.QtCore import Qt, QThread, pyqtSignal,QTimer
-# from PyQt6.QtCore import Qt, QUrl
-# from PyQt6.QtGui import QIcon
-
 from PySide6.QtWidgets import (
     QApplication, QVBoxLayout, QPushButton,
     QWidget, QLabel, QHBoxLayout, QSlider, 
@@ -33,8 +19,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtCore import Qt, QThread, Signal,QTimer, QUrl, Slot
-# from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+# from PyQt6.QtGui import QIcon
 from moviepy import VideoFileClip
 # from moviepy.editor import VideoFileClip
 import os
@@ -43,7 +28,8 @@ from googletrans import Translator
 from datetime import datetime
 import time
 # from pydub.utils import mediainfo
-import whisper
+# import whisper
+from faster_whisper import WhisperModel
 import torch
 
 class CommonClass():
@@ -84,13 +70,14 @@ class CommonClass():
         print(devices)
         return devices
 
-class VideoProcessThread(QThread):   
+class VideoProcessThread(QThread):
     progress_signal = Signal(int)
     error_signal = Signal(str)
     transcribed_signal = Signal(str)
     translated_signal = Signal(str)
+    translated_subtitles_signal = Signal(list)
     all_transcribed_signal = Signal(str)
-    subtitles_signal = Signal(list)
+    subtitles_signal = Signal(list,list)
 
     def __init__(self, video_path, audio_path,model):
         super().__init__()
@@ -98,25 +85,26 @@ class VideoProcessThread(QThread):
         self.audio_path = audio_path
         self.model = model
         # self.subtitles = None
-        # self.model = whisper.load_model("small")  # 选择 'base' 模型，适合快速测试
+        # self.model = WhisperModel.load_model("small", compute_type="float16")  # 选择 'base' 模型，适合快速测试
 
     def run(self):
         try:
             # 擷取音訊並轉為文字
             print("擷取音訊並轉為文字")
             audio_file = self.extract_audio(self.video_path)
-            transcribed_text,all_transcribed_text,subtitles = self.transcribe_audio(audio_file)
+            transcribed_text,all_transcribed_text,subtitles,translate_text,translate_subtitles = self.transcribe_audio(audio_file)
 
             self.transcribed_signal.emit(transcribed_text)  # 發送轉錄文字訊號
+            # self.subtitles_signal.emit(subtitles)
+            self.subtitles_signal.emit(subtitles,translate_subtitles)
             self.all_transcribed_signal.emit(all_transcribed_text)  # 發送轉錄文字訊號
-
+            
             # 翻譯文字
             print("翻譯文字")
-            translated_text = self.translate_text(transcribed_text)
-            # print(translated_text)
-            self.translated_signal.emit(translated_text)  # 發送翻譯文字訊號
-            subtitles = self.translate_text_to_subtitles(subtitles,translated_text)
-            self.subtitles_signal.emit(subtitles)
+            # print(translate_text)
+            self.translated_signal.emit(translate_text)  # 發送翻譯文字訊號
+            # subtitles = self.translate_text_to_subtitles(translate_subtitles,translated_text)
+            # self.translated_subtitles_signal.emit(translate_subtitles)
         except Exception as e:
             self.error_signal.emit(str(e))
 
@@ -151,35 +139,76 @@ class VideoProcessThread(QThread):
         print("將音訊轉為文字")
         try:
             # 設定進度回調函數
-            result = self.model.transcribe(audio_path, verbose=True)  # 支持 MP3, WAV, FLAC 格式
-            print(audio_path)
+            # result = self.model.transcribe(audio_path, verbose=True)  # 支持 MP3, WAV, FLAC 格式
+            segments, info = self.model.transcribe(audio_path)
+            # 獲取總時長（用於進度條的總值）
+            total_duration = info.duration
+            progress = 0  # 初始化進度
             # 估算进度
-            total_segments = len(result["segments"])
+            # total_segments = len(segments)
             text = ""
             all_text = ""
-            for  i, segment in enumerate(result["segments"]):
-                text += f"{segment['text']}\r\n"
-                all_text += f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}\r\n"
-                progress = int((i + 1) / total_segments * 100)
-                self.progress_signal.emit(progress)  # 发送信号更新进度条
-                # time.sleep(0.1)  # 模拟处理时间
-                print(f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}")
-            print("開始轉錄...")
+            new_segments = []
+            oringinal_srts = []
+            for segment in segments:
+                text += f"{segment.text}\r\n"
+                all_text += f"Start: {segment.start}s, End: {segment.end}s, Text: {segment.text}\r\n"
+                progress = int(segment.end / total_duration * 100)
+                self.progress_signal.emit(progress)
+                subtitle_dict = {
+                    "start" : segment.start,
+                    "end" : segment.end,
+                    "text" : segment.text,
+                }
+                oringinal_srts.append(segment.text)
+                new_segments.append(subtitle_dict)
+                print(f"[{segment.start} -> {segment.end}] {segment.text}")
+            self.progress_signal.emit(100)
+            [translate_text,translate_segments] = self.subtitleToTranslateSubtittle(new_segments,oringinal_srts)
             
-            return [text,all_text,result["segments"]]
+            # for  i, segment in enumerate(result["segments"]):
+            #     text += f"{segment['text']}\r\n"
+            #     all_text += f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}\r\n"
+            #     progress = int((i + 1) / total_segments * 100)
+            #     self.progress_signal.emit(progress)  # 发送信号更新进度条
+            #     # time.sleep(0.1)  # 模拟处理时间
+            #     print(f"Start: {segment['start']}s, End: {segment['end']}s, Text: {segment['text']}")
+            print("開始轉錄...")
+            return [text,all_text,new_segments,translate_text,translate_segments]
         except Exception as e:
             print(f"讀取音訊時出錯: {e}")
             return [None,None,None]
-
+        
+    def subtitleToTranslateSubtittle(self,segments,oringinal_srts):
+        new_translated_srt = []
+        translated_all_output = ""
+        for i in range(0, len(oringinal_srts), 300):  # 每次处理3行（编号、时间戳、字幕）
+            part_srts = oringinal_srts[i:i+300]  # 获取当前字幕的3行（编号、时间、字幕文本）
+            merged_subtitles = '\n\n'.join(part_srts)
+            translated_output = self.translate_text(merged_subtitles)
+            
+            new_part_srts = translated_output.split('\n\n')
+            new_translated_srt[i:i+300] = new_part_srts            
+        print(len(segments))
+        print(len(new_translated_srt))
+        # print(new_translated_srt)
+        for i, segment in enumerate(segments):
+            segments[i]["text"] = new_translated_srt[i]
+            translated_all_output += new_translated_srt[i]+"\n"
+        
+        return [translated_all_output,segments]
+        
     def translate_text(self, text):
         """翻譯文字為繁體中文"""
         if not text or not isinstance(text, str):
             # 確保輸入為非空字串
             return text
-        
         translator = Translator()
+        
         try:
-            translated = translator.translate(text, src='en', dest='zh-TW')
+            # detected = translator.detect(text) # 自动检测语言
+            # print(detected)
+            translated = translator.translate(text,dest='zh-TW')
             # 確保返回的物件有 text 屬性
             if translated is None:
                 print("翻譯失敗: 翻譯結果為 None")
@@ -192,11 +221,11 @@ class VideoProcessThread(QThread):
         # 如果翻譯失敗，返回原始文本
         return text
     
-    def translate_text_to_subtitles(self,subtitles,chinese_text):
-        chinese_translate_text_array = chinese_text.split("\r\n")
-        for index, subtitle in enumerate(subtitles):
-            subtitles[index]["chinese_text"] = chinese_translate_text_array[index]
-        return subtitles
+    # def translate_text_to_subtitles(self,subtitles,chinese_text):
+    #     chinese_translate_text_array = chinese_text.split("\r\n")
+    #     for index, subtitle in enumerate(subtitles):
+    #         subtitles[index]["chinese_text"] = chinese_translate_text_array[index]
+    #     return subtitles
 
     
 class SettingSelectionPage(QWidget):
@@ -210,7 +239,7 @@ class SettingSelectionPage(QWidget):
         
     def initUI(self):
         self.setWindowTitle("設定選擇頁面")
-        self.setGeometry(100, 100, 600, 800)
+        self.setGeometry(100, 100, 600, 300)
     
         # 主布局
         layout = QVBoxLayout()
@@ -274,7 +303,12 @@ class MainUIPage(QWidget):
         self.selected_device_text = selected_device_text
         self.initUI()
         self.switch_to_setting_selection = switch_to_setting_selection
-        self.model = whisper.load_model("turbo", device=self.selected_device_value)
+        # model_path = "D:/python/modal/ggml-small.bin"
+        # print(os.path.exists(model_path))
+        if selected_device_value=="cpu":
+            self.model = WhisperModel('turbo', device=self.selected_device_value)
+        else:
+            self.model = WhisperModel('base', device="cuda", compute_type="float16")
         
     def initUI(self):
         self.setWindowTitle("視頻語音轉文字工具")
@@ -282,7 +316,7 @@ class MainUIPage(QWidget):
 
         # 主布局
         layout = QVBoxLayout()
-
+        
         # 初始化播放器
         self.media_player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
@@ -292,7 +326,7 @@ class MainUIPage(QWidget):
         self.media_player.setProperty("threads", 1)
         self.media_player.setProperty("playbackMode", "software")
         self.media_player.setProperty("enableHardwareAcceleration", False)
-
+        
         # 视频窗口
         self.video_widget = QVideoWidget(self)
         self.video_widget.setFixedSize(600, 300)
@@ -429,16 +463,15 @@ class MainUIPage(QWidget):
         self.video_file = None
         self.video_file_name = None
         self.playing = False
-        
         # 信号绑定
         self.media_player.positionChanged.connect(self.update_position)
         self.media_player.durationChanged.connect(self.update_duration)
         self.media_player.playbackStateChanged.connect(self.play_pause)
         self.media_player.errorChanged.connect(self.on_error)
-
+    
     def on_error(self):
         print(f"播放错误: {self.media_player.errorString()}")
-    
+        
     def on_back_button_clicked(self):
         """点击返回按钮时切换回设备选择界面"""
         self.switch_to_setting_selection()
@@ -455,7 +488,6 @@ class MainUIPage(QWidget):
             # url = file_dialog.selectedUrls()[0]
             self.video_file = normalized_path
             self.video_file_name = os.path.splitext(os.path.basename(normalized_path))[0]
-            print(file_url)
             self.media_player.setSource(file_url)  
             self.slider.setEnabled(True)
             self.file_label.setText(f"已選擇文件：{file_path.split('/')[-1]}")
@@ -481,7 +513,7 @@ class MainUIPage(QWidget):
             self.status_label.setText("狀態：播放中")
             self.media_player.play()
             self.playing = True
-
+            
     def original_srt_button_click(self):
         """翻譯後的srt button 點擊"""
         if not self.translation_complete:
@@ -528,9 +560,8 @@ class MainUIPage(QWidget):
             try:
                 # 使用自定義的字幕生成方法
                 self.generate_srt(
-                    self.subtitles,
-                    file_path,
-                    text_field="chinese_text"  # 使用翻譯文本字段
+                    self.translate_subtitles,
+                    file_path
                 )
                 # 成功提示
                 QMessageBox.information(self, "成功", f"SRT 文件已保存到: {file_path}")
@@ -538,7 +569,6 @@ class MainUIPage(QWidget):
                 # 錯誤提示
                 QMessageBox.critical(self, "錯誤", f"文件保存失敗: {str(e)}")
 
-        
     def seek_video(self):
         """调整播放进度"""
         value = self.progress_bar.value()
@@ -561,6 +591,7 @@ class MainUIPage(QWidget):
         self.video_thread.translated_signal.connect(self.update_translated_text)
         self.video_thread.all_transcribed_signal.connect(self.update_all_transcribed_text)
         self.video_thread.subtitles_signal.connect(self.update_subtitles_data)
+        # self.video_thread.translated_subtitles_signal(self.)
         self.video_thread.error_signal.connect(self.show_error)
         self.video_thread.start()
         
@@ -595,6 +626,7 @@ class MainUIPage(QWidget):
         [hours,minutes,remaining_seconds] = self.video_formatted_time(duration)
         formatted_time = f"影片總長度 {hours:02}:{minutes:02}:{remaining_seconds:02}"
         self.total_video_formatted_time_label.setText(formatted_time)
+
         
     def update_progress(self, value):
         """更新進度條"""
@@ -620,8 +652,9 @@ class MainUIPage(QWidget):
         self.all_transcribed_text = text
         self.all_speech_recognition_textEdit.setText(self.all_transcribed_text)
     
-    def update_subtitles_data(self,subtitles):
+    def update_subtitles_data(self,subtitles,translate_subtitles):
         self.subtitles = subtitles
+        self.translate_subtitles = translate_subtitles
         self.translation_complete = True
         self.status_label.setText("狀態：語音轉文字完成")
         self.status_label.setStyleSheet("color: green;font-size: 14px;")
@@ -652,6 +685,15 @@ class MainUIPage(QWidget):
         self.processing_time_label.setText(f"處理完成，共耗時 {self.processing_seconds} 秒")
         QMessageBox.information(self, "完成", f"處理完成，共耗時 {self.processing_seconds} 秒")
         
+    def format_time(self,seconds):
+        # 将秒数转换为 SRT 的时间格式
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = seconds % 60
+        milliseconds = int((seconds - int(seconds)) * 1000)
+        return f"{hours:02}:{minutes:02}:{int(seconds):02},{milliseconds:03}"
+
+        
     def video_formatted_time(self,number,is_duration=False):
         if is_duration:
             seconds = number
@@ -661,15 +703,6 @@ class MainUIPage(QWidget):
         hours = int(minutes // 60)  # 获取分钟
         remaining_seconds = int(seconds % 60)  # 获取剩余的秒
         return [hours,minutes,remaining_seconds]
-        
-    def format_time(self,seconds):
-        # 将秒数转换为 SRT 的时间格式
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = seconds % 60
-        milliseconds = int((seconds - int(seconds)) * 1000)
-        return f"{hours:02}:{minutes:02}:{int(seconds):02},{milliseconds:03}"
-
         
     def generate_srt(self,subtitles, output_file,text_field="text"):
         with open(output_file, 'w', encoding='utf-8') as f:
