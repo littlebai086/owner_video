@@ -10,7 +10,7 @@ from pypinyin import lazy_pinyin
 import numpy as np
 import mysql.connector
 from mysql.connector import Error
-from fuzzywuzzy import fuzz, process
+# from fuzzywuzzy import fuzz, process
 # 数据库连接配置
 config = {
     'user': 'admin',      # 替换为你的用户名
@@ -65,20 +65,14 @@ def correct_words(words, stock_list,skip_word_array):
     corrected_words = []
     best_matchs = []
     highest_scores = []
-    skip_next = False
-    skip_count = 0
     combine_str_boolean = False
     max_combine_length = 2
     last_combined_index = 0
     for i in range(len(words)):
-        # if skip_count > 0:
-        #     skip_count -= 1
-        #     continue
-        if skip_next:
-            skip_next = False
-            continue
+        find_match_boolean = False
         print("combine_str_boolean",combine_str_boolean)
-        print("combine_比較",len(words[i])>last_combined_index+1)
+        print("combine_比較",len(words[i]))
+        print("combine_比較1",last_combined_index+1)
         if combine_str_boolean:
             if len(words[i])>last_combined_index+1:
                 combined_word = words[i][last_combined_index+1:]
@@ -94,6 +88,7 @@ def correct_words(words, stock_list,skip_word_array):
                 new_best_matchs = np.concatenate((best_matchs,combine_best_matchs))
                 new_highest_scores = np.concatenate((highest_scores,combine_highest_scores))
                 new_corrected_words = np.concatenate((corrected_words,combine_corrected_words))
+                find_match_boolean = True
                 return new_best_matchs, new_highest_scores, new_corrected_words
                 continue  # 繼續處理下一個詞組
             else:
@@ -104,59 +99,101 @@ def correct_words(words, stock_list,skip_word_array):
         combine_str_boolean = False
         best_match = None
         highest_score = 0
-        current_combine_length = 0
         
         if words[i] in skip_word_array:
-            corrected_words.append(combined_word)
+            corrected_words.append(words[i])
             best_matchs.append(best_match)
             highest_scores.append(highest_score)
             continue
         print("原本的詞:", combined_word)
-        for j in range(1,max_combine_length+1):
-            
-            current_combine_length+=1
-            last_combined_index = index = j-1
-            if current_combine_length>max_combine_length:
-                break
-            print(i)
-            print(len(words))
-            print(i+current_combine_length)
-            current_combine_index = current_combine_length
-            if len(words)>i+current_combine_index:
-                if len(words[i+current_combine_index])>=j:
-                    combined_word += words[i+current_combine_index][index]
-                    print("嘗試合併的詞:", combined_word)
-                
-                    match, score = find_best_match(combined_word, stock_list)
-                    print(score)
-                    if score > highest_score:  # 更新最佳匹配
-                        best_match = match
-                        highest_score = score
+        words_move_index=0
+        words_move_index_2=0
         
-                    # 如果分數超過閾值，立即選擇最佳結果
-                    if highest_score >= 0.8:
-                        combine_str_boolean = True
-                        print(f"合併成功: {combined_word} → {best_match} (分數: {highest_score})")
-                        corrected_words.append(best_match)
-                        best_matchs.append(best_match)
-                        highest_scores.append(highest_score)
-                        
-                        # skip_count = j  # 跳過已合併的詞
-                        break
-            else:
-                match, score = find_best_match(combined_word, stock_list)
-                print("最後的字詞",combined_word)
-                if score >= 0.8:
-                    corrected_words.append(match)
-                    best_matchs.append(match)
-                    highest_scores.append(score)
-                    
-            # else:
+        for j in range(0,max_combine_length):
+            if len(words)-1 <= i:
+                break
+            # if j==0:
+            #     match, score = find_best_match(combined_word, stock_list)
+            #     best_matchs.append(match)
+            #     highest_scores.append(score)
+            #     find_match_boolean = True
+            #     if score >=0.8:
+            #         corrected_words.append(match)
+            #         break
+            #     else:
+            #         corrected_words.append(words[i])
+            print("start")
+            # print("j",j)
+            # if current_combine_length>max_combine_length:
             #     break
+            # print(i)
+            # print(len(words))
+            combine_boolean = False
+            if len(words)>(i+words_move_index):
+                if len(words[i+words_move_index])>(words_move_index_2+1):
+                    # print("第二次if",True)
+                    # print(words[i+words_move_index])
+                    # print("尚未加words_move_index",words_move_index)
+                    # print("第二次判斷",words_move_index_2+1)
+                    if j>0:
+                        words_move_index_2 += 1
+                    else:
+                        words_move_index = 1
+                        # if len(words)>=i+words_move_index:
+                        #     break
+                            
+                    combine_boolean = True
+                else:
+                    # print("第二次if",False)
+                    print(len(words[i:]))
+                    print(words_move_index+1)
+                    if len(words[i:]) > words_move_index+1:
+                        words_move_index += 1
+                        words_move_index_2 = 0
+                        combine_boolean = True
+                
+                        
+                print("words_move_index",words_move_index)
+                print("words_move_index_2",words_move_index_2)
+                if combine_boolean:
+                    combined_word += words[i+words_move_index][words_move_index_2]    
+                else:
+                    break
+                
+                print("嘗試合併的詞:", combined_word)
+                
+                match, score = find_best_match(combined_word, stock_list)
+                # print(score)
+                # print(highest_score)
+                if score > highest_score:  # 更新最佳匹配
+                    best_match = match
+                    highest_score = score
+        
+                # 如果分數超過閾值，立即選擇最佳結果
+                if highest_score >= 0.8:
+                    combine_str_boolean = True
+                    last_combined_index = words_move_index_2
+                    print(f"合併成功: {combined_word} → {best_match} (分數: {highest_score})")
+                    corrected_words.append(best_match)
+                    best_matchs.append(best_match)
+                    highest_scores.append(highest_score)
+                    find_match_boolean = True
+                    break
+
+                print("end")
+                    # print("長度words i+current_combine_length:",len(words[i+current_combine_index]))
+                    # print("j:",j)
+                    # match, score = find_best_match(combined_word, stock_list)
+            else:
+                break
 
         # 如果沒有達到閾值，僅加入當前詞
-        if score<0.8:
-            corrected_words.append(words[i])
+        if not find_match_boolean:
+            match, score = find_best_match(combined_word, stock_list)
+            if score >=0.8:
+                corrected_words.append(match)
+            else:
+                corrected_words.append(words[i])
             best_matchs.append(match)
             highest_scores.append(score)
     
@@ -338,12 +375,19 @@ def find_best_match(input_name, stock_list):
         # 字符相似度
         text_similarity = calculate_similarity(input_name, stock)
         # 綜合相似度
+
+        # total_score = 0.8 * pinyin_similarity + 0.2 * text_similarity
+        # 原本的
         total_score = 0.6 * pinyin_similarity + 0.4 * text_similarity
 
         if total_score > highest_score:
             highest_score = total_score
             best_match = stock
-
+    
+    # if len(best_match)!=len(input_name):
+    #     print("best_match",best_match)
+    #     print("input_name",input_name)
+    #     return None,0
     return best_match, highest_score
 
        
@@ -433,7 +477,7 @@ input_name = "0056新增了楊明"
 input_name = "那我們來看一下台基電"
 input_name = "現在連發科已經定好了"
 input_name = "代表的台機電不要給你先用"
-input_name = "我連連八科所就帶來了"
+input_name = "我連連發科所就帶來了"
 input_name = "派了連發科派了台打電"
 sentence = input_name
 file_path = "./userdict.txt"
@@ -449,5 +493,3 @@ print("原本字詞  ",''.join(words))
 print("校正完字詞",''.join(corrected_words))
 print("best_matchs:", best_matchs)
 print("highest_scores:", highest_scores)
-
-
