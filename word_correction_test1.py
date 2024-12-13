@@ -68,13 +68,14 @@ def correct_words(words, stock_list,skip_word_array):
     combine_str_boolean = False
     max_combine_length = 2
     last_combined_index = 0
+    base_number = 0.79
     for i in range(len(words)):
         find_match_boolean = False
         print("combine_str_boolean",combine_str_boolean)
         print("combine_比較",len(words[i]))
         print("combine_比較1",last_combined_index+1)
         if combine_str_boolean:
-            if len(words[i])>last_combined_index+1:
+            if len(words[i])>=last_combined_index+1:
                 combined_word = words[i][last_combined_index+1:]
                 print(words[i][last_combined_index+1:])
                 print(words[i:])
@@ -112,16 +113,15 @@ def correct_words(words, stock_list,skip_word_array):
         for j in range(0,max_combine_length):
             if len(words)-1 <= i:
                 break
-            # if j==0:
-            #     match, score = find_best_match(combined_word, stock_list)
-            #     best_matchs.append(match)
-            #     highest_scores.append(score)
-            #     find_match_boolean = True
-            #     if score >=0.8:
-            #         corrected_words.append(match)
-            #         break
-            #     else:
-            #         corrected_words.append(words[i])
+            if j==0:
+                match, score = find_best_match(combined_word, stock_list)
+                if score > base_number:
+                    find_match_boolean = True
+                    best_matchs.append(match)
+                    highest_scores.append(score)
+                    corrected_words.append(match)
+                    break
+
             print("start")
             # print("j",j)
             # if current_combine_length>max_combine_length:
@@ -170,7 +170,7 @@ def correct_words(words, stock_list,skip_word_array):
                     highest_score = score
         
                 # 如果分數超過閾值，立即選擇最佳結果
-                if highest_score >= 0.8:
+                if highest_score > base_number:
                     combine_str_boolean = True
                     last_combined_index = words_move_index_2
                     print(f"合併成功: {combined_word} → {best_match} (分數: {highest_score})")
@@ -190,7 +190,7 @@ def correct_words(words, stock_list,skip_word_array):
         # 如果沒有達到閾值，僅加入當前詞
         if not find_match_boolean:
             match, score = find_best_match(combined_word, stock_list)
-            if score >=0.8:
+            if score > base_number:
                 corrected_words.append(match)
             else:
                 corrected_words.append(words[i])
@@ -376,18 +376,18 @@ def find_best_match(input_name, stock_list):
         text_similarity = calculate_similarity(input_name, stock)
         # 綜合相似度
 
-        # total_score = 0.8 * pinyin_similarity + 0.2 * text_similarity
+        total_score = 0.7 * pinyin_similarity + 0.3 * text_similarity
         # 原本的
-        total_score = 0.6 * pinyin_similarity + 0.4 * text_similarity
+        # total_score = 0.6 * pinyin_similarity + 0.4 * text_similarity
 
         if total_score > highest_score:
             highest_score = total_score
             best_match = stock
     
-    # if len(best_match)!=len(input_name):
-    #     print("best_match",best_match)
-    #     print("input_name",input_name)
-    #     return None,0
+    if len(best_match)!=len(input_name):
+        print("best_match",best_match)
+        print("input_name",input_name)
+        return None,0
     return best_match, highest_score
 
        
@@ -438,6 +438,8 @@ skip_word_array=[
     "謝謝",
     "比較",
     "但是",
+    "歷史","新高","因為",
+    "湖航"
 ]
 new_subtitles_result = []
 for subtitle in subtitles:
@@ -472,6 +474,21 @@ for new_subtitle in new_subtitles_result:
     print("highest_scores:", new_subtitle["highest_scores"])
     print("=====================================")
     
+output_file = "subtitles_result.txt"
+with open(output_file, "w", encoding="utf-8") as file:
+    for new_subtitle in new_subtitles_result:
+        file.write("=====================================\n")
+        file.write(f"原本字詞　:{''.join(new_subtitle['words'])}\n")
+        file.write(f"校正完字詞:{''.join(new_subtitle['corrected_words'])}\n")
+        file.write("=====================================\n\n")
+        
+        print("=====================================")
+        print("原本字詞　:", ''.join(new_subtitle['words']))
+        print("校正完字詞:", ''.join(new_subtitle['corrected_words']))
+        print("=====================================")
+
+
+    
 input_name = "台基電扣瓦斯雜的產能了"
 input_name = "0056新增了楊明"
 input_name = "那我們來看一下台基電"
@@ -479,6 +496,9 @@ input_name = "現在連發科已經定好了"
 input_name = "代表的台機電不要給你先用"
 input_name = "我連連發科所就帶來了"
 input_name = "派了連發科派了台打電"
+input_name = "他的股性會比長浪航活潑"
+input_name = "來台灣湖航"
+input_name = "從湖航 掛牌到這個華航"
 sentence = input_name
 file_path = "./userdict.txt"
 jieba.load_userdict (file_path)
@@ -493,3 +513,13 @@ print("原本字詞  ",''.join(words))
 print("校正完字詞",''.join(corrected_words))
 print("best_matchs:", best_matchs)
 print("highest_scores:", highest_scores)
+
+import math
+
+number = 0.791
+if 0.8>number>0.79:
+    print(number)
+rounded_number = math.ceil(number * 10) / 10
+print(rounded_number)  # 输出：0.8
+
+
