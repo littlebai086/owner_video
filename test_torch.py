@@ -37,7 +37,7 @@ for device_type, status in available_devices.items():
     print(f"{device_type}: {status}")
 
 list_devices = []
-model = whisper.load_model("small", device="xpu")
+model = whisper.load_model("turbo", device="cuda:0")
 next(model.parameters()).device
 for device_type, status in available_devices.items():
     if isinstance(status, list):  # 处理多个 GPU 的情况
