@@ -139,8 +139,21 @@ trainer = Trainer(
     tokenizer=processor.feature_extractor,  # 使用音频特征提取器
 )
 
-trainer.train()
+train_output = trainer.train()
 
+# 打印训练结果
+print("训练步骤:", train_output.global_step)
+print("训练损失:", train_output.training_loss)
+print("训练指标:", train_output.metrics)
+
+from transformers import AutoModelForSeq2SeqLM
+
+# 保存模型到指定路径
+model_save_path = "./whisper_model"
+trainer.save_model(model_save_path)  # 这会保存权重和配置
+
+# 也可以单独保存权重
+trainer.model.save_pretrained(model_save_path)
 # 自定義 PyTorch 訓練循環
 
 from torch.utils.data import DataLoader
@@ -179,3 +192,10 @@ fine_tuned_processor = WhisperProcessor.from_pretrained("./whisper-finetuned")
 asr = pipeline("automatic-speech-recognition", model=fine_tuned_model, processor=fine_tuned_processor)
 result = asr("path/to/audio.wav")
 print(result["text"])
+
+
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
+
+# 加载模型和分词器
+model = WhisperForConditionalGeneration.from_pretrained("./whisper_model")
+processor = WhisperProcessor.from_pretrained("./whisper_model")
